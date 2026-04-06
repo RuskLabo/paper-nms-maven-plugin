@@ -1222,6 +1222,11 @@ public abstract class MojoBase extends AbstractMojo {
      * @throws MojoExecutionException If something goes wrong.
      */
     public void installToMavenRepo(String gameVersion, List<String> dependencyCoordinates, Path mappedServerPath, Path pomPath) throws MojoExecutionException {
+        String installedVersion = gameVersion;
+        if (!this.isVersionGreaterOrEqual(gameVersion, MIN_MOJANG_RUNTIME_VERSION)) {
+            installedVersion += "-SNAPSHOT";
+        }
+
         StringBuilder pom = new StringBuilder()
             .append("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
             .append("<project xsi:schemaLocation=\"http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd\" xmlns=\"http://maven.apache.org/POM/4.0.0\"\n")
@@ -1229,7 +1234,7 @@ public abstract class MojoBase extends AbstractMojo {
             .append("  <modelVersion>4.0.0</modelVersion>\n")
             .append("  <groupId>").append(this.getNmsGroupId()).append("</groupId>\n")
             .append("  <artifactId>").append(this.devBundle.id).append("</artifactId>\n")
-            .append("  <version>").append(gameVersion).append("-SNAPSHOT</version>\n");
+            .append("  <version>").append(installedVersion).append("</version>\n");
 
         // Add dependencies
         if (!dependencyCoordinates.isEmpty()) {
@@ -1278,12 +1283,12 @@ public abstract class MojoBase extends AbstractMojo {
         }
 
         try {
-            this.installViaArtifactInstaller(mappedServerPath, pomPath, gameVersion);
+            this.installViaArtifactInstaller(mappedServerPath, pomPath, installedVersion);
         } catch (ArtifactInstallationException e) {
             throw new MojoExecutionException("Failed to install mapped server jar to local repository.", e);
         }
 
-        getLog().info("Installed into local repository");
+        getLog().info("Installed " + this.getNmsGroupId() + ":" + this.devBundle.id + ":" + installedVersion + " into local repository");
 
         getLog().info("Cleaning up");
         try {
@@ -1299,16 +1304,15 @@ public abstract class MojoBase extends AbstractMojo {
      * {@link ArtifactInstaller}.
      *
      * <p>Will install with the group id {@link #getNmsGroupId()}, the artifact id
-     * will be the dev bundle id and the version {@code gameVersion-SNAPSHOT}
-     * where {@code gameVersion} is replaced with the game version.</p>
+     * will be the dev bundle id and the version {@code installedVersion}.</p>
      *
      * @param artifactPath The path to the artifact to install.
      * @param pomPath The path to the pom to install with it.
-     * @param gameVersion The game version.
+     * @param installedVersion The version.
      * @throws ArtifactInstallationException If something goes wrong.
      */
-    private void installViaArtifactInstaller(Path artifactPath, Path pomPath, String gameVersion) throws ArtifactInstallationException {
-        Artifact artifact = this.artifactFactory.createArtifactWithClassifier(this.getNmsGroupId(), this.devBundle.id, gameVersion + "-SNAPSHOT", "jar", null);
+    private void installViaArtifactInstaller(Path artifactPath, Path pomPath, String installedVersion) throws ArtifactInstallationException {
+        Artifact artifact = this.artifactFactory.createArtifactWithClassifier(this.getNmsGroupId(), this.devBundle.id, installedVersion, "jar", null);
 
         // Add pom
         ProjectArtifactMetadata pomMetadata = new ProjectArtifactMetadata(artifact, pomPath.toFile());
