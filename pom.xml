@@ -6,7 +6,7 @@
 
     <groupId>com.github.rusklabo</groupId>
     <artifactId>paper-nms-maven-plugin</artifactId>
-    <version>1.5.2-fix</version>
+    <version>1.5.2-fix3</version>
 
     <packaging>maven-plugin</packaging>
 
