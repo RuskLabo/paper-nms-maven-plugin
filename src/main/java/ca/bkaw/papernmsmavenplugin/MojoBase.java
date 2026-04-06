@@ -90,6 +90,9 @@ public abstract class MojoBase extends AbstractMojo {
     @Parameter( property = "devBundle" )
     DevBundle devBundle;
 
+    @Parameter( property = "nmsGroupId" )
+    String nmsGroupId;
+
     // Paths
 
     /**
@@ -117,6 +120,9 @@ public abstract class MojoBase extends AbstractMojo {
      * @return The group id.
      */
     public String getNmsGroupId() {
+        if (this.nmsGroupId != null) {
+            return this.nmsGroupId;
+        }
         return "paper-nms".equals(this.devBundle.id) ? "ca.bkaw" : "ca.bkaw.nms";
     }
 
@@ -141,6 +147,11 @@ public abstract class MojoBase extends AbstractMojo {
 
             if (this.getNmsGroupId().equals(dependency.getGroupId()) && this.devBundle.id.equals(dependency.getArtifactId())) {
                 String version = dependency.getVersion();
+                if (this.isVersionGreaterOrEqual(version, MIN_MOJANG_RUNTIME_VERSION)) {
+                    // For versions >= 26.1, the full version string (e.g. 26.1.1.build.14-alpha)
+                    // is used as the game version to allow separate caches for different builds.
+                    return version;
+                }
                 int hyphenIndex = version.indexOf('-');
                 return hyphenIndex == -1 ? version : version.substring(0, hyphenIndex);
             }
@@ -155,7 +166,11 @@ public abstract class MojoBase extends AbstractMojo {
             "\n    <scope>provided</scope>" +
             "\n</dependency>" +
             "\n" +
-            "\n Replacing \"1.21.8\" with the desired version.");
+            "\n Replacing \"1.21.8\" with the desired version." +
+            (this.isJitPack() ? "\n\nOn JitPack, make sure you have run the 'init' goal in your jitpack.yml:\n" +
+            "install:\n" +
+            "  - mvn ca.bkaw:paper-nms-maven-plugin:init\n" +
+            "  - mvn install -DskipTests" : ""));
     }
 
     /**
@@ -166,16 +181,28 @@ public abstract class MojoBase extends AbstractMojo {
      * @return True if version >= threshold.
      */
     public boolean isVersionGreaterOrEqual(String version, String threshold) {
-        String[] versionParts = version.split("\\.");
-        String[] thresholdParts = threshold.split("\\.");
+        try {
+            String[] versionParts = version.split("\\.");
+            String[] thresholdParts = threshold.split("\\.");
 
-        for (int i = 0; i < Math.max(versionParts.length, thresholdParts.length); i++) {
-            int v = i < versionParts.length ? Integer.parseInt(versionParts[i]) : 0;
-            int t = i < thresholdParts.length ? Integer.parseInt(thresholdParts[i]) : 0;
+            for (int i = 0; i < Math.max(versionParts.length, thresholdParts.length); i++) {
+                String vPart = i < versionParts.length ? versionParts[i] : "0";
+                String tPart = i < thresholdParts.length ? thresholdParts[i] : "0";
 
-            if (v > t) return true;
-            if (v < t) return false;
-        }
+                // Strip any non-digit characters and following from the part (e.g. "1-SNAPSHOT" -> "1")
+                vPart = vPart.replaceAll("[^0-9].*$", "");
+                tPart = tPart.replaceAll("[^0-9].*$", "");
+
+                if (vPart.isEmpty()) vPart = "0";
+                if (tPart.isEmpty()) tPart = "0";
+
+                int v = Integer.parseInt(vPart);
+                int t = Integer.parseInt(tPart);
+
+                if (v > t) return true;
+                if (v < t) return false;
+            }
+        } catch (NumberFormatException ignored) {}
 
         return true;
     }
@@ -372,6 +399,15 @@ public abstract class MojoBase extends AbstractMojo {
     }
 
     /**
+     * Check if the current environment is JitPack.
+     *
+     * @return True if on JitPack.
+     */
+    public boolean isJitPack() {
+        return "true".equals(System.getenv("JITPACK"));
+    }
+
+    /**
      * Get a list of the repositories to use to search for the dev-bundle and related
      * resources.
      *
@@ -380,6 +416,15 @@ public abstract class MojoBase extends AbstractMojo {
      */
     public List<ArtifactRepository> getDevBundleRepositories() throws MojoExecutionException {
         List<ArtifactRepository> repositories = new ArrayList<>();
+
+        // Add JitPack repository if we are on JitPack or if the user might be using it.
+        repositories.add(new MavenArtifactRepository(
+            "jitpack",
+            "https://jitpack.io",
+            new DefaultRepositoryLayout(),
+            new ArtifactRepositoryPolicy(),
+            new ArtifactRepositoryPolicy()
+        ));
 
         if (this.devBundle.repository != null) {
             if (this.devBundle.repository.url == null) {
@@ -412,10 +457,17 @@ public abstract class MojoBase extends AbstractMojo {
     }
 
     public Artifact getDevBundleArtifact(CharSequence gameVersion) {
+        String versionPattern = this.devBundle.artifact.version;
+        if (this.isVersionGreaterOrEqual(gameVersion.toString(), MIN_MOJANG_RUNTIME_VERSION)
+            && "${gameVersion}-R0.1-SNAPSHOT".equals(versionPattern)) {
+            // New versioning scheme: the game version already includes build metadata
+            // and does not use the legacy -R0.1-SNAPSHOT suffix.
+            versionPattern = "${gameVersion}";
+        }
         return this.artifactFactory.createArtifactWithClassifier(
             this.devBundle.artifact.groupId,
             this.devBundle.artifact.artifactId,
-            this.devBundle.artifact.version.replace("${gameVersion}", gameVersion),
+            versionPattern.replace("${gameVersion}", gameVersion),
             "zip",
             this.devBundle.artifact.classifier
         );

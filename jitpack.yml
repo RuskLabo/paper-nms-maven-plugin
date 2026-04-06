@@ -1,0 +1,4 @@
+# jitpack.yml for paper-nms-maven-plugin itself
+install:
+  # Ensure the maven-plugin-plugin runs to generate plugin.xml
+  - mvn install -DskipTests
