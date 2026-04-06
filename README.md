@@ -1,9 +1,8 @@
 # paper-nms-maven-plugin
 
-[!WARNING]
-
-これは自プロジェクトのためのフォーク版です。本家（Alvinn8版）をベースに Minecraft 26.1.1 への対応を行ったものですが、公式なサポートは一切行いません。
-不具合や質問がある場合は、各自の責任でコードを確認・利用してください。
+> [!WARNING]
+> これは自プロジェクトのためのフォーク版です。本家（Alvinn8版）をベースに Minecraft 26.1.1 への対応を行ったものですが、公式なサポートは一切行いません。
+> 不具合や質問がある場合は、各自の責任でコードを確認・利用してください。
 
 A maven plugin for using NMS on [Paper](https://github.com/PaperMC/Paper) with Mojang mappings.
 
