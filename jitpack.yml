@@ -1,4 +1,5 @@
 before_install:
+  - sed -i 's/<groupId>ca.bkaw<\/groupId>/<groupId>com.github.rusklabo<\/groupId>/g' pom.xml
   - sdk install java 17.0.10-tem
   - sdk use java 17.0.10-tem
   - sdk install maven 3.9.9
