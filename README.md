@@ -14,8 +14,8 @@ This plugin will both create the mapped paper dependency and install it to your 
 <pluginRepositories>
     ...
     <pluginRepository>
-        <id>bytecode.space</id>
-        <url>https://repo.bytecode.space/repository/maven-public/</url>
+        <id>jitpack.io</id>
+        <url>https://jitpack.io</url>
     </pluginRepository>
     ...
 </pluginRepositories>
@@ -24,9 +24,9 @@ This plugin will both create the mapped paper dependency and install it to your 
     <plugins>
         ...
         <plugin>
-            <groupId>ca.bkaw</groupId>
+            <groupId>com.github.rusklabo</groupId>
             <artifactId>paper-nms-maven-plugin</artifactId>
-            <version>1.4.10</version>
+            <version>1.5.1</version>
             <executions>
                 <execution>
                     <phase>process-classes</phase>
@@ -138,6 +138,8 @@ This is done by configuring the plugin as follows.
     <version>...</version>
     <executions>...</executions>
     <configuration>
+        <!-- Optional: Custom group ID for the generated NMS dependency (useful for forks on JitPack) -->
+        <nmsGroupId>com.github.rusklabo.nms</nmsGroupId>
         <devBundle>
             <!-- The artifact id of the resulting dependency -->
             <id>forktest-nms</id>
