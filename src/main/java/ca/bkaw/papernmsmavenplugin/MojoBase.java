@@ -67,6 +67,8 @@ import java.util.regex.Pattern;
  */
 @SuppressWarnings("deprecation")
 public abstract class MojoBase extends AbstractMojo {
+    public static final String MIN_MOJANG_RUNTIME_VERSION = "26.1";
+
     @Parameter( defaultValue = "${project}", required = true, readonly = true )
     MavenProject project;
 
@@ -139,7 +141,8 @@ public abstract class MojoBase extends AbstractMojo {
 
             if (this.getNmsGroupId().equals(dependency.getGroupId()) && this.devBundle.id.equals(dependency.getArtifactId())) {
                 String version = dependency.getVersion();
-                return version.substring(0, version.indexOf('-'));
+                int hyphenIndex = version.indexOf('-');
+                return hyphenIndex == -1 ? version : version.substring(0, hyphenIndex);
             }
         }
         throw new MojoFailureException("Unable to find the version to use.\n" +
@@ -153,6 +156,28 @@ public abstract class MojoBase extends AbstractMojo {
             "\n</dependency>" +
             "\n" +
             "\n Replacing \"1.21.8\" with the desired version.");
+    }
+
+    /**
+     * Check if the game version is greater than or equal to the specified threshold.
+     *
+     * @param version The game version to check.
+     * @param threshold The threshold version.
+     * @return True if version >= threshold.
+     */
+    public boolean isVersionGreaterOrEqual(String version, String threshold) {
+        String[] versionParts = version.split("\\.");
+        String[] thresholdParts = threshold.split("\\.");
+
+        for (int i = 0; i < Math.max(versionParts.length, thresholdParts.length); i++) {
+            int v = i < versionParts.length ? Integer.parseInt(versionParts[i]) : 0;
+            int t = i < thresholdParts.length ? Integer.parseInt(thresholdParts[i]) : 0;
+
+            if (v > t) return true;
+            if (v < t) return false;
+        }
+
+        return true;
     }
 
     // Utils
@@ -307,25 +332,36 @@ public abstract class MojoBase extends AbstractMojo {
             Path mappingsSpigotPath = cacheDirectory.resolve("mappings_" + gameVersion + "_spigot.tiny");
 
             Path mojangMappingsPath = cacheDirectory.resolve("mojang_mappings.txt");
-            this.downloadMojangMappings(mojangMappingsPath, gameVersion);
+            boolean hasMojangMappings = this.downloadMojangMappings(mojangMappingsPath, gameVersion);
 
-            getLog().info("Downloading spigot mappings");
-            Path spigotClassMappingsPath = cacheDirectory.resolve("spigot_class_mappings_"+ gameVersion +".csrg");
-            Path spigotMemberMappingsPath = cacheDirectory.resolve("spigot_member_mappings_"+ gameVersion +".csrg");
-            this.downloadSpigotMappings(spigotClassMappingsPath, spigotMemberMappingsPath, gameVersion);
+            if (hasMojangMappings) {
+                getLog().info("Downloading spigot mappings");
+                Path spigotClassMappingsPath = cacheDirectory.resolve("spigot_class_mappings_" + gameVersion + ".csrg");
+                Path spigotMemberMappingsPath = cacheDirectory.resolve("spigot_member_mappings_" + gameVersion + ".csrg");
+                this.downloadSpigotMappings(spigotClassMappingsPath, spigotMemberMappingsPath, gameVersion);
 
-            getLog().info("Merging mappings");
-            this.mergeMappings(spigotClassMappingsPath, spigotMemberMappingsPath, mojangMappingsPath, mappingsPath, mappingsMojangPath, mappingsSpigotPath);
+                getLog().info("Merging mappings");
+                this.mergeMappings(spigotClassMappingsPath, spigotMemberMappingsPath, mojangMappingsPath, mappingsPath, mappingsMojangPath, mappingsSpigotPath);
 
-            Path paperclipPath = cacheDirectory.resolve("paperclip.jar");
-            this.downloadPaper(gameVersion, paperclipPath);
+                Path paperclipPath = cacheDirectory.resolve("paperclip.jar");
+                this.downloadPaper(gameVersion, paperclipPath);
 
-            getLog().info("Extracting paper");
-            Path paperPath = cacheDirectory.resolve("paper.jar");
-            this.extractServerJar(gameVersion, cacheDirectory, paperPath);
+                getLog().info("Extracting paper");
+                Path paperPath = cacheDirectory.resolve("paper.jar");
+                this.extractServerJar(gameVersion, cacheDirectory, paperPath);
 
-            getLog().info("Mapping paper jar");
-            this.mapPaperJar(mappingsPath, paperPath, mappedServerPath);
+                getLog().info("Mapping paper jar");
+                this.mapPaperJar(mappingsPath, paperPath, mappedServerPath);
+            } else {
+                // No Mojang mappings. Assuming the version is unobfuscated (>= 26.1).
+                getLog().info("Proceeding without mappings (unobfuscated version)");
+                Path paperclipPath = cacheDirectory.resolve("paperclip.jar");
+                this.downloadPaper(gameVersion, paperclipPath);
+
+                getLog().info("Extracting paper");
+                this.extractServerJar(gameVersion, cacheDirectory, mappedServerPath);
+                // No mapping needed.
+            }
         } else {
             throw new MojoFailureException("No dev bundle was found for version " + gameVersion);
         }
@@ -621,10 +657,11 @@ public abstract class MojoBase extends AbstractMojo {
      *
      * @param mojangMappingsPath The path to put the Mojang mappings.
      * @param gameVersion The game version.
+     * @return True if mappings were found and downloaded, false otherwise.
      * @throws MojoFailureException If something goes wrong.
      * @throws MojoExecutionException If something goes wrong.
      */
-    public void downloadMojangMappings(Path mojangMappingsPath, String gameVersion) throws MojoFailureException, MojoExecutionException {
+    public boolean downloadMojangMappings(Path mojangMappingsPath, String gameVersion) throws MojoFailureException, MojoExecutionException {
         try {
             getLog().info("Downloading version manifest");
             InputStream versionManifest = new URL("https://launchermeta.mojang.com/mc/game/version_manifest_v2.json").openStream();
@@ -650,6 +687,10 @@ public abstract class MojoBase extends AbstractMojo {
             JSONObject versionInfoJson = new JSONObject(new JSONTokener(versionInfo));
 
             JSONObject downloads = versionInfoJson.getJSONObject("downloads");
+            if (!downloads.has("server_mappings")) {
+                getLog().info("No server mappings found in version manifest.");
+                return false;
+            }
             JSONObject mappings = downloads.getJSONObject("server_mappings");
 
             String mappingsUrl = mappings.getString("url");
@@ -657,6 +698,7 @@ public abstract class MojoBase extends AbstractMojo {
             versionInfo.close();
             getLog().info("Downloading mojang mappings");
             this.downloadFile(mappingsUrl, mojangMappingsPath, mappingsSha1);
+            return true;
 
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to get the mojang mappings.", e);
@@ -672,15 +714,17 @@ public abstract class MojoBase extends AbstractMojo {
      * @param spigotClassMappingsPath The path to put the class mappings.
      * @param spigotMemberMappingsPath The path to put the member mappings.
      * @param gameVersion The game version.
+     * @return True if mappings were found and downloaded, false otherwise.
      * @throws MojoExecutionException If something goes wrong.
      */
-    public void downloadSpigotMappings(Path spigotClassMappingsPath, Path spigotMemberMappingsPath, String gameVersion) throws MojoExecutionException {
+    public boolean downloadSpigotMappings(Path spigotClassMappingsPath, Path spigotMemberMappingsPath, String gameVersion) throws MojoExecutionException {
         getLog().info("Downloading spigot version info");
         InputStream inputStream;
         try {
             inputStream = new URL("https://hub.spigotmc.org/versions/" + gameVersion + ".json").openStream();
         } catch (IOException e) {
-            throw new MojoExecutionException("Failed to download spigot version info");
+            getLog().info("Failed to download spigot version info for " + gameVersion + ". Assuming spigot mappings are not available.");
+            return false;
         }
         JSONObject json = new JSONObject(new JSONTokener(inputStream));
 
@@ -706,6 +750,8 @@ public abstract class MojoBase extends AbstractMojo {
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to validate spigot member mappings", e);
         }
+
+        return true;
     }
 
     /**
@@ -725,22 +771,30 @@ public abstract class MojoBase extends AbstractMojo {
         MappingSet spigotMappings;
         MappingSet mojangMappings;
 
-        MappingSet spigotClassMappings;
-        try {
-            spigotClassMappings = MappingFormats.CSRG.read(spigotClassMappingsPath);
-        } catch (IOException e) {
-            throw new MojoExecutionException("Failed to read spigot class mappings", e);
-        }
-        if (Files.exists(spigotMemberMappingsPath)) {
-            MappingSet memberMappings;
+        boolean spigotMappingsExist = Files.exists(spigotClassMappingsPath);
+
+        if (spigotMappingsExist) {
+            MappingSet spigotClassMappings;
             try {
-                memberMappings = MappingFormats.CSRG.read(spigotMemberMappingsPath);
+                spigotClassMappings = MappingFormats.CSRG.read(spigotClassMappingsPath);
             } catch (IOException e) {
-                throw new MojoExecutionException("Failed to read spigot member mappings", e);
+                throw new MojoExecutionException("Failed to read spigot class mappings", e);
             }
-            spigotMappings = spigotClassMappings.merge(memberMappings);
+            if (Files.exists(spigotMemberMappingsPath)) {
+                MappingSet memberMappings;
+                try {
+                    memberMappings = MappingFormats.CSRG.read(spigotMemberMappingsPath);
+                } catch (IOException e) {
+                    throw new MojoExecutionException("Failed to read spigot member mappings", e);
+                }
+                spigotMappings = spigotClassMappings.merge(memberMappings);
+            } else {
+                spigotMappings = spigotClassMappings;
+            }
         } else {
-            spigotMappings = spigotClassMappings;
+            // Spigot mappings are missing, use identity mapping for obfuscated names
+            spigotMappings = MappingSet.create();
+            getLog().info("Spigot mappings missing, remapping will be limited.");
         }
 
         try {
@@ -754,7 +808,9 @@ public abstract class MojoBase extends AbstractMojo {
         this.fixMappings(mappings);
 
         try {
-            TinyMappingFormat.TINY_2.write(mappings, outputPath, "spigot", "mojang");
+            if (spigotMappingsExist) {
+                TinyMappingFormat.TINY_2.write(mappings, outputPath, "spigot", "mojang");
+            }
             TinyMappingFormat.TINY_2.write(mojangMappings, outputMojangPath, "mojang", "obfuscated");
             TinyMappingFormat.TINY_2.write(spigotMappings, outputSpigotPath, "obfuscated", "spigot");
         } catch (IOException e) {
@@ -764,10 +820,29 @@ public abstract class MojoBase extends AbstractMojo {
         getLog().info("Cleaning up mappings");
         try {
             Files.delete(mojangMappingsPath);
-            Files.delete(spigotClassMappingsPath);
+            Files.deleteIfExists(spigotClassMappingsPath);
             Files.deleteIfExists(spigotMemberMappingsPath);
         } catch (IOException e) {
             throw new MojoExecutionException("Failed to clean up mappings");
+        }
+
+        if (!spigotMappingsExist) {
+            // Create a .missing file to indicate that spigot mappings were missing
+            Path missingMappingsPath = Paths.get(outputPath + ".missing");
+            try {
+                Files.deleteIfExists(outputPath);
+                Files.createFile(missingMappingsPath);
+            } catch (IOException e) {
+                throw new MojoExecutionException("Failed to create .missing file", e);
+            }
+        } else {
+            // Ensure .missing file is deleted if mappings now exist
+            Path missingMappingsPath = Paths.get(outputPath + ".missing");
+            try {
+                Files.deleteIfExists(missingMappingsPath);
+            } catch (IOException e) {
+                throw new MojoExecutionException("Failed to delete .missing file", e);
+            }
         }
     }
 

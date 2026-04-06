@@ -11,6 +11,7 @@ import org.apache.maven.plugin.MojoExecutionException;
 import org.apache.maven.plugin.MojoFailureException;
 import org.apache.maven.plugins.annotations.LifecyclePhase;
 import org.apache.maven.plugins.annotations.Mojo;
+import org.apache.maven.plugins.annotations.Parameter;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -25,6 +26,15 @@ import java.util.List;
 
 @Mojo(name = "remap", defaultPhase = LifecyclePhase.PACKAGE)
 public class RemapMojo extends MojoBase {
+    @Parameter( property = "remapTarget", defaultValue = "AUTO" )
+    private RemapTarget remapTarget;
+
+    public enum RemapTarget {
+        SPIGOT,
+        MOJANG,
+        AUTO
+    }
+
     private RemappedClasses remappedClasses;
 
     @Override
@@ -34,6 +44,26 @@ public class RemapMojo extends MojoBase {
         Path inputPath = this.project.getArtifact().getFile().toPath();
 
         String gameVersion = this.getGameVersion();
+
+        // Check if the version is Mojang-mapped at runtime (>= 26.1)
+        if (this.isVersionGreaterOrEqual(gameVersion, MIN_MOJANG_RUNTIME_VERSION)) {
+            getLog().info("Minecraft " + gameVersion + " uses Mojang mappings at runtime. Skipping remapping.");
+            return;
+        }
+
+        // Determine the actual remapping target
+        RemapTarget target = this.remapTarget;
+        if (target == RemapTarget.AUTO) {
+            // AUTO defaults to SPIGOT for versions < 26.1 since they still need remapping
+            // and MOJANG for >= 26.1 (already handled above).
+            target = RemapTarget.SPIGOT;
+        }
+
+        if (target == RemapTarget.MOJANG) {
+            getLog().info("Targeting Mojang-mapped runtime. Skipping remapping.");
+            return;
+        }
+
         Path cacheDirectory = this.getCacheDirectory().resolve(gameVersion);
         Path mappingsPath = cacheDirectory.resolve("mappings_" + gameVersion + ".tiny");
         Path missingMappingsPath = Paths.get(mappingsPath + ".missing");
@@ -43,17 +73,23 @@ public class RemapMojo extends MojoBase {
 
         if (Files.exists(mappingsMojangPath) != Files.exists(mappingsSpigotPath)) {
             // One of the files is missing, delete the mappings and initialize again
-            getLog().info("Broken mappings found, running init");
+            if (!Files.exists(mappingsSpigotPath) && Files.exists(Paths.get(mappingsPath + ".missing"))) {
+                // Spigot mappings are explicitly missing, this is okay if we are not targeting spigot
+                // But if we are here, we ARE targeting spigot (target == SPIGOT)
+                getLog().info("Spigot mappings are missing for this version.");
+            } else {
+                getLog().info("Broken mappings found, running init");
 
-            try {
-                Files.deleteIfExists(mappingsPath);
-                Files.deleteIfExists(mappingsMojangPath);
-                Files.deleteIfExists(mappingsSpigotPath);
-            } catch (IOException exception) {
-                throw new MojoExecutionException("Unable to delete mappings", exception);
+                try {
+                    Files.deleteIfExists(mappingsPath);
+                    Files.deleteIfExists(mappingsMojangPath);
+                    Files.deleteIfExists(mappingsSpigotPath);
+                } catch (IOException exception) {
+                    throw new MojoExecutionException("Unable to delete mappings", exception);
+                }
+
+                this.init();
             }
-
-            this.init();
         }
 
         String mappingFrom = "mojang";
