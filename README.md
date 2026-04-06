@@ -26,7 +26,7 @@ This plugin will both create the mapped paper dependency and install it to your 
         <plugin>
             <groupId>com.github.rusklabo</groupId>
             <artifactId>paper-nms-maven-plugin</artifactId>
-            <version>1.5.1</version>
+            <version>1.5.2</version>
             <executions>
                 <execution>
                     <phase>process-classes</phase>
